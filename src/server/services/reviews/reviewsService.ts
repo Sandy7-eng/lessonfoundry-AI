@@ -16,6 +16,21 @@ export class ReviewsService {
     });
   }
 
+  static async getReviewsByUnitId(unitId: string) {
+    return prisma.review.findMany({
+      where: {
+        asset: {
+          unitId,
+        },
+      },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        asset: { select: { id: true, title: true, type: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   static async createReview(input: CreateReviewInput) {
     const validated = CreateReviewSchema.parse(input);
     return prisma.review.create({
