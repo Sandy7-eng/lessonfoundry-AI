@@ -1,0 +1,394 @@
+// ============================================================
+// LessonFoundry - Prisma Schema
+// PostgreSQL / Supabase-compatible
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums
+
+enum UserRole {
+  TEACHER
+  ADMIN
+}
+
+enum UnitStatus {
+  DRAFT
+  GENERATING
+  NEEDS_REVIEW
+  APPROVED
+}
+
+enum SourceType {
+  PDF
+  DOCUMENT
+  TEXT
+  URL
+}
+
+enum SourceStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  ERROR
+}
+
+enum AssetType {
+  CONCEPT_EXPLANATION
+  WORKED_EXAMPLE
+  FORMATIVE_QUIZ
+  DIFFERENTIATED_PRACTICE_FOUNDATION
+  DIFFERENTIATED_PRACTICE_EXTENSION
+  REVISION_SHEET
+}
+
+enum AssetStatus {
+  DRAFT
+  APPROVED
+  NEEDS_REVISION
+}
+
+enum ReviewStatus {
+  DRAFT
+  APPROVED
+  NEEDS_REVISION
+}
+
+enum QuestionDifficulty {
+  FOUNDATION
+  CORE
+  EXTENSION
+}
+
+enum BloomLevel {
+  REMEMBER
+  UNDERSTAND
+  APPLY
+  ANALYSE
+  EVALUATE
+  CREATE
+}
+
+enum DifficultyLevel {
+  FOUNDATION
+  CORE
+  EXTENSION
+}
+
+enum AnswerRevealPolicy {
+  ALWAYS
+  AFTER_ATTEMPT
+  TEACHER_ONLY
+  NEVER
+}
+
+enum ContentLength {
+  BRIEF
+  STANDARD
+  DETAILED
+}
+
+enum ObjectiveCoverageStatus {
+  COVERED
+  PARTIAL
+  MISSING
+}
+
+enum QualityIssueSeverity {
+  ERROR
+  WARNING
+  INFO
+}
+
+enum QualityIssueStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum VersionStatus {
+  DRAFT
+  GENERATING
+  NEEDS_REVIEW
+  APPROVED
+}
+
+// ── User
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      UserRole @default(TEACHER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  units   Unit[]
+  reviews Review[]
+
+  @@index([email])
+  @@map("users")
+}
+
+// ── Unit
+
+model Unit {
+  id          String     @id @default(cuid())
+  userId      String
+  title       String
+  subject     String
+  targetLevel String
+  status      UnitStatus @default(DRAFT)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sources       Source[]
+  objectives    Objective[]
+  constraints   Constraint?
+  assets        Asset[]
+  qualityIssues QualityIssue[]
+  unitVersions  UnitVersion[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([subject])
+  @@map("units")
+}
+
+// ── Source
+
+model Source {
+  id        String       @id @default(cuid())
+  unitId    String
+  name      String
+  type      SourceType
+  status    SourceStatus @default(PROCESSING)
+  trusted   Boolean      @default(false)
+  sizeBytes Int?
+  pageCount Int?
+  preview   String?      @db.Text
+  version   Int          @default(1)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  unit        Unit         @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  provenances Provenance[]
+
+  @@index([unitId])
+  @@map("sources")
+}
+
+// ── Objective
+
+model Objective {
+  id           String      @id @default(cuid())
+  unitId       String
+  identifier   String
+  text         String      @db.Text
+  bloomLevel   BloomLevel?
+  displayOrder Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  unit       Unit                 @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  alignments ObjectiveAlignment[]
+
+  @@index([unitId])
+  @@map("objectives")
+}
+
+// ── Constraint
+
+model Constraint {
+  id                    String             @id @default(cuid())
+  unitId                String             @unique
+  difficulty            DifficultyLevel    @default(CORE)
+  vocabularyConstraints String?            @db.Text
+  contentLength         ContentLength      @default(STANDARD)
+  answerRevealPolicy    AnswerRevealPolicy @default(AFTER_ATTEMPT)
+  teacherNotes          String?            @db.Text
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@map("constraints")
+}
+
+// ── Asset
+
+model Asset {
+  id        String      @id @default(cuid())
+  unitId    String
+  type      AssetType
+  title     String
+  content   String      @db.Text
+  status    AssetStatus @default(DRAFT)
+  version   Int         @default(1)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  unit          Unit                 @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  questions     Question[]
+  alignments    ObjectiveAlignment[]
+  reviews       Review[]
+  qualityIssues QualityIssue[]
+  assetVersions AssetVersion[]
+  provenances   Provenance[]
+
+  @@index([unitId])
+  @@index([status])
+  @@map("assets")
+}
+
+// ── Question
+
+model Question {
+  id           String             @id @default(cuid())
+  assetId      String
+  content      String             @db.Text
+  answer       String             @db.Text
+  difficulty   QuestionDifficulty @default(CORE)
+  displayOrder Int                @default(0)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  asset      Asset                @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  alignments ObjectiveAlignment[]
+
+  @@index([assetId])
+  @@map("questions")
+}
+
+// ── ObjectiveAlignment
+
+model ObjectiveAlignment {
+  id          String                  @id @default(cuid())
+  objectiveId String
+  assetId     String?
+  questionId  String?
+  status      ObjectiveCoverageStatus @default(PARTIAL)
+  createdAt   DateTime                @default(now())
+
+  objective Objective @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+  asset     Asset?    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  question  Question? @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([objectiveId])
+  @@index([assetId])
+  @@index([questionId])
+  @@map("objective_alignments")
+}
+
+// ── Review
+
+model Review {
+  id        String       @id @default(cuid())
+  assetId   String
+  userId    String
+  status    ReviewStatus @default(DRAFT)
+  comment   String?      @db.Text
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([assetId])
+  @@index([userId])
+  @@map("reviews")
+}
+
+// ── QualityIssue
+
+model QualityIssue {
+  id              String               @id @default(cuid())
+  unitId          String
+  assetId         String?
+  questionId      String?
+  type            String
+  severity        QualityIssueSeverity
+  description     String               @db.Text
+  explanation     String?              @db.Text
+  suggestedAction String?              @db.Text
+  status          QualityIssueStatus   @default(OPEN)
+  resolvedAt      DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  unit  Unit   @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  asset Asset? @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([unitId])
+  @@index([assetId])
+  @@index([severity])
+  @@index([status])
+  @@map("quality_issues")
+}
+
+// ── UnitVersion
+
+model UnitVersion {
+  id                String        @id @default(cuid())
+  unitId            String
+  versionNumber     Int
+  status            VersionStatus
+  assetVersionCount Int           @default(0)
+  sourceVersion     Int           @default(1)
+  modelIdentifier   String?
+  generationVersion String?
+  teacherAction     String?
+  note              String?       @db.Text
+  createdAt         DateTime      @default(now())
+
+  unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@unique([unitId, versionNumber])
+  @@index([unitId])
+  @@map("unit_versions")
+}
+
+// ── AssetVersion
+
+model AssetVersion {
+  id              String      @id @default(cuid())
+  assetId         String
+  versionNumber   Int
+  status          AssetStatus
+  note            String?     @db.Text
+  contentSnapshot String?     @db.Text
+  createdAt       DateTime    @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, versionNumber])
+  @@index([assetId])
+  @@map("asset_versions")
+}
+
+// ── Provenance
+
+model Provenance {
+  id                String   @id @default(cuid())
+  assetId           String?
+  sourceId          String?
+  modelIdentifier   String
+  generationVersion String
+  generationConfig  Json?
+  generatedAt       DateTime @default(now())
+
+  asset  Asset?  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  source Source? @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+
+  @@index([assetId])
+  @@index([sourceId])
+  @@map("provenances")
+}

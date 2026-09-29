@@ -1,36 +1,117 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# LessonFoundry — AI-Powered Lesson & Assessment Engine
 
-## Getting Started
+LessonFoundry is a modern web platform built with Next.js, TypeScript, PostgreSQL, Prisma, and Zod.
 
-First, run the development server:
+---
+
+## 🛠️ Stack & Architecture
+
+- **Frontend**: Next.js 16 (App Router), React 19, Vanilla CSS with custom tokens & ambient background system
+- **Backend & Database**: Prisma ORM 6, PostgreSQL (Supabase compatible)
+- **Validation**: Zod 4
+
+---
+
+## 🚀 Environment Variables
+
+Copy `.env.example` to `.env`:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+| Variable | Description | Default / Example |
+|---|---|---|
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@localhost:5432/lessonfoundry?schema=public` |
+| `NODE_ENV` | Application environment | `development` |
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> Note: The frontend is designed to run and compile without requiring live database credentials.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## 🗄️ Database & Prisma Setup
 
-To learn more about Next.js, take a look at the following resources:
+### 1. Validate Schema
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npx prisma validate
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 2. Generate Prisma Client
 
-## Deploy on Vercel
+```bash
+npx prisma generate
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 3. Run Migrations / Push Schema
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# Push schema changes to a local/remote PostgreSQL instance
+npx prisma db push
+
+# Create a migration (for production)
+npx prisma migrate dev --name init
+```
+
+### 4. Seed Development Data
+
+```bash
+npm run db:seed
+# or
+npx prisma db seed
+```
+
+The seed script creates:
+- 1 User (Teacher)
+- 1 Unit (Photosynthesis & Cellular Respiration)
+- 1 Source PDF document metadata
+- 2 Learning Objectives (LO1, LO2)
+- Unit Constraints
+- 2 Sample Assets (Concept Guide, Formative Quiz with 2 Questions)
+- Objective Alignments
+- Review feedback
+- Open Quality Issue
+- Unit Version, Asset Version, and Provenance audit log
+
+---
+
+## 💻 Local Development Commands
+
+```bash
+# Start development server
+npm run dev
+
+# Run ESLint check
+npm run lint
+
+# Run Production Build check
+npm run build
+```
+
+---
+
+## 📁 Project Structure
+
+```text
+prisma/
+  ├── schema.prisma           # Normalized Prisma Schema
+  └── seed.ts                 # Development Seed Data Script
+src/
+  ├── app/                    # Next.js App Router Pages & Components
+  ├── components/             # Reusable UI Components
+  ├── lib/
+  │   ├── db/
+  │   │   └── prisma.ts       # Graceful Prisma DB Client Singleton
+  │   ├── mockData.ts         # Frontend mock data
+  │   └── utils.ts            # UI utilities & styling helpers
+  └── server/
+      ├── schemas/            # Zod Validation Schemas
+      └── services/           # Backend Domain Services
+          ├── assets/
+          ├── objectives/
+          ├── quality/
+          ├── reviews/
+          ├── sources/
+          ├── units/
+          └── versions/
+```
