@@ -25,6 +25,7 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
   const [currentStep, setCurrentStep] = useState<number>(1);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generationProgress, setGenerationProgress] = useState<number>(0);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Step 1: Details
   const [title, setTitle] = useState('');
@@ -103,35 +104,149 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
     setObjectives(objectives.filter((o) => o.id !== id));
   };
 
-  const handleStartGeneration = () => {
-    setIsGenerating(true);
-    setGenerationProgress(15);
-
-    const interval = setInterval(() => {
-      setGenerationProgress((prev) => {
-        if (prev >= 90) {
-          clearInterval(interval);
-          setTimeout(() => {
-            finishCreation();
-          }, 600);
-          return 100;
-        }
-        return prev + 25;
-      });
-    }, 400);
+  // Map DB enum → frontend display type for AssetType
+  const mapAssetType = (dbType: string): import('@/types').AssetType => {
+    const map: Record<string, import('@/types').AssetType> = {
+      CONCEPT_EXPLANATION: 'Concept Explanation',
+      WORKED_EXAMPLE: 'Worked Example',
+      FORMATIVE_QUIZ: 'Formative Quiz',
+      DIFFERENTIATED_PRACTICE_FOUNDATION: 'Differentiated Practice — Foundation',
+      DIFFERENTIATED_PRACTICE_EXTENSION: 'Differentiated Practice — Extension',
+      REVISION_SHEET: 'Revision Sheet',
+    };
+    return map[dbType] ?? 'Concept Explanation';
   };
 
-  const finishCreation = () => {
+  // Map DB enum → frontend AssetStatus
+  const mapAssetStatus = (dbStatus: string): import('@/types').AssetStatus => {
+    if (dbStatus === 'APPROVED') return 'Approved';
+    if (dbStatus === 'NEEDS_REVISION') return 'Needs Revision';
+    return 'Draft';
+  };
+
+  // Map DB enum → frontend UnitStatus
+  const mapUnitStatus = (dbStatus: string): import('@/types').UnitStatus => {
+    if (dbStatus === 'GENERATED') return 'Generated';
+    if (dbStatus === 'NEEDS_REVIEW') return 'Needs Review';
+    if (dbStatus === 'APPROVED') return 'Approved';
+    if (dbStatus === 'GENERATING') return 'Generating';
+    return 'Draft';
+  };
+
+  const handleStartGeneration = async () => {
+    setIsGenerating(true);
+    setErrorMsg(null);
+    setGenerationProgress(15);
+    
+    try {
+      const unitPayload = {
+        title: title.trim() || 'Untitled Curriculum Unit',
+        subject,
+        targetLevel,
+        constraints: { difficulty, vocabularyConstraints, answerRevealPolicy: answerPolicy },
+        sources: sources.map(s => ({ name: s.name, type: s.type, preview: s.preview })),
+        objectives: objectives.map(o => ({ identifier: o.identifier, text: o.text }))
+      };
+      
+      const initRes = await fetch('/api/units/initialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(unitPayload)
+      });
+      
+      if (!initRes.ok) {
+        const err = await initRes.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to initialize unit');
+      }
+      const { unitId } = await initRes.json();
+      
+      setGenerationProgress(50);
+      
+      const genRes = await fetch(`/api/units/${unitId}/generate`, { method: 'POST' });
+      if (!genRes.ok) {
+        const err = await genRes.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to generate pack');
+      }
+      
+      setGenerationProgress(90);
+      
+      // Fetch the full unit from API to get real assets
+      const unitRes = await fetch(`/api/units/${unitId}`);
+      if (!unitRes.ok) {
+        const err = await unitRes.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to fetch generated unit');
+      }
+      const dbUnit = await unitRes.json();
+      
+      setGenerationProgress(100);
+      
+      setTimeout(() => {
+        finishCreation(unitId, dbUnit);
+      }, 600);
+    } catch (error: any) {
+      console.error('Generation Error', error);
+      setIsGenerating(false);
+      setGenerationProgress(0);
+      setErrorMsg(error.message || 'Generation failed. Please try again.');
+    }
+  };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const finishCreation = (unitId: string, dbUnit: any) => {
+    // Map DB asset records to frontend Asset shape
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mappedAssets: LearningUnit['assets'] = (dbUnit.assets ?? []).map((a: any) => ({
+      id: a.id,
+      title: a.title,
+      type: mapAssetType(a.type),
+      status: mapAssetStatus(a.status),
+      objectiveCoverage: [],
+      lastUpdated: a.updatedAt ?? new Date().toISOString(),
+      content: a.content ?? '',
+      versions: (a.assetVersions ?? []).map((v: any) => ({
+        versionNumber: v.versionNumber,
+        createdAt: v.createdAt,
+        note: v.note ?? undefined,
+        status: mapAssetStatus(v.status),
+      })),
+      provenance: a.provenances?.[0] ? {
+        sourceId: a.provenances[0].sourceId ?? '',
+        sourceName: dbUnit.sources?.[0]?.name ?? 'Source',
+        sourceVersion: 1,
+        generatedAt: a.provenances[0].generatedAt,
+        modelIdentifier: a.provenances[0].modelIdentifier,
+        generationVersion: a.provenances[0].generationVersion,
+      } : undefined,
+    }));
+
+    const mappedSources: LearningUnit['sources'] = (dbUnit.sources ?? []).map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      type: s.type as LearningUnit['sources'][0]['type'],
+      status: 'Ready' as const,
+      trusted: s.trusted,
+      uploadedAt: s.createdAt,
+      version: s.version,
+      preview: s.preview ?? undefined,
+    }));
+
+    const mappedObjectives: LearningUnit['objectives'] = (dbUnit.objectives ?? []).map((o: any) => ({
+      id: o.id,
+      identifier: o.identifier,
+      text: o.text,
+      bloomsLevel: undefined,
+    }));
+
     const newUnit: LearningUnit = {
-      id: `unit-${generateId()}`,
-      title: title.trim() || 'Untitled Curriculum Unit',
-      subject,
-      targetLevel,
-      status: 'Needs Review',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      sources,
-      objectives,
+      id: unitId,
+      title: dbUnit.title ?? title.trim() || 'Untitled Curriculum Unit',
+      subject: dbUnit.subject ?? subject,
+      targetLevel: dbUnit.targetLevel ?? targetLevel,
+      status: mapUnitStatus(dbUnit.status),
+      createdAt: dbUnit.createdAt ?? new Date().toISOString(),
+      updatedAt: dbUnit.updatedAt ?? new Date().toISOString(),
+      sources: mappedSources.length > 0 ? mappedSources : sources,
+      objectives: mappedObjectives.length > 0 ? mappedObjectives : objectives,
       constraints: {
         ...MOCK_CONSTRAINTS,
         targetLevel,
@@ -139,176 +254,7 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
         vocabularyConstraints,
         answerRevealPolicy: answerPolicy,
       },
-      assets: [
-        {
-          id: generateId(),
-          title: `${title} — Concept Explanation`,
-          type: 'Concept Explanation',
-          status: 'Needs Revision',
-          objectiveCoverage: objectives.map((o) => ({
-            objectiveId: o.id,
-            identifier: o.identifier,
-            status: 'Covered' as const,
-          })),
-          lastUpdated: new Date().toISOString(),
-          content: `## ${title}\n\nThis unit introduces foundational understanding derived from verified sources.\n\n### Key Concepts\n- Core Definition: Fundamental principles outlined in ${sources[0]?.name || 'source materials'}.\n- Mechanism and function.`,
-          versions: [
-            {
-              versionNumber: 1,
-              createdAt: new Date().toISOString(),
-              status: 'Draft',
-            },
-          ],
-          provenance: {
-            sourceId: sources[0]?.id || 'src-custom',
-            sourceName: sources[0]?.name || 'Initial Source Document',
-            sourceVersion: 1,
-            generatedAt: new Date().toISOString(),
-            modelIdentifier: 'lf-generator-v1',
-            generationVersion: '1.0.0',
-          },
-        },
-        {
-          id: generateId(),
-          title: `Worked Example: Step-by-Step Problem Solving`,
-          type: 'Worked Example',
-          status: 'Draft',
-          objectiveCoverage: objectives.map((o) => ({
-            objectiveId: o.id,
-            identifier: o.identifier,
-            status: 'Covered' as const,
-          })),
-          lastUpdated: new Date().toISOString(),
-          content: `## Worked Example: Problem Walkthrough\n\n**Problem Statement:** Analyze a typical exam scenario based on the syllabus.\n\n**Step 1:** Extract the given variables.\n**Step 2:** Formulate the structured answer.\n**Step 3:** Confirm alignment with marking criteria.`,
-          versions: [
-            {
-              versionNumber: 1,
-              createdAt: new Date().toISOString(),
-              status: 'Draft',
-            },
-          ],
-          provenance: {
-            sourceId: sources[0]?.id || 'src-custom',
-            sourceName: sources[0]?.name || 'Initial Source Document',
-            sourceVersion: 1,
-            generatedAt: new Date().toISOString(),
-            modelIdentifier: 'lf-generator-v1',
-            generationVersion: '1.0.0',
-          },
-        },
-        {
-          id: generateId(),
-          title: `Formative Quiz: ${title}`,
-          type: 'Formative Quiz',
-          status: 'Needs Revision',
-          objectiveCoverage: objectives.map((o) => ({
-            objectiveId: o.id,
-            identifier: o.identifier,
-            status: 'Covered' as const,
-          })),
-          lastUpdated: new Date().toISOString(),
-          content: `## Formative Quiz: Checking Understanding\n\n**Q1.** State the primary definition of the topic. (2 marks)\n\n> **Answer Key:** Accurate definition conforming to curriculum requirements.\n\n---\n\n**Q2.** Identify the critical distinguishing feature.\n\nA) Feature A\nB) Feature B\nC) Feature C\n\n> **Answer Key:** Option B`,
-          versions: [
-            {
-              versionNumber: 1,
-              createdAt: new Date().toISOString(),
-              status: 'Draft',
-            },
-          ],
-          provenance: {
-            sourceId: sources[0]?.id || 'src-custom',
-            sourceName: sources[0]?.name || 'Initial Source Document',
-            sourceVersion: 1,
-            generatedAt: new Date().toISOString(),
-            modelIdentifier: 'lf-generator-v1',
-            generationVersion: '1.0.0',
-          },
-        },
-        {
-          id: generateId(),
-          title: `Differentiated Practice — Foundation`,
-          type: 'Differentiated Practice — Foundation',
-          status: 'Draft',
-          objectiveCoverage: objectives.map((o) => ({
-            objectiveId: o.id,
-            identifier: o.identifier,
-            status: 'Covered' as const,
-          })),
-          lastUpdated: new Date().toISOString(),
-          content: `## Foundation Practice\n\nScaffolded activities with word bank and structured clues.\n\n**Word Bank:** term 1, term 2, term 3\n\nComplete the sentences using the bank above.`,
-          versions: [
-            {
-              versionNumber: 1,
-              createdAt: new Date().toISOString(),
-              status: 'Draft',
-            },
-          ],
-          provenance: {
-            sourceId: sources[0]?.id || 'src-custom',
-            sourceName: sources[0]?.name || 'Initial Source Document',
-            sourceVersion: 1,
-            generatedAt: new Date().toISOString(),
-            modelIdentifier: 'lf-generator-v1',
-            generationVersion: '1.0.0',
-          },
-        },
-        {
-          id: generateId(),
-          title: `Differentiated Practice — Extension`,
-          type: 'Differentiated Practice — Extension',
-          status: 'Draft',
-          objectiveCoverage: objectives.map((o) => ({
-            objectiveId: o.id,
-            identifier: o.identifier,
-            status: 'Covered' as const,
-          })),
-          lastUpdated: new Date().toISOString(),
-          content: `## Extension Practice\n\nHigh-level application questions for higher-tier challenge and evaluation.\n\n**Q1.** Evaluate the consequences in complex scenarios.`,
-          versions: [
-            {
-              versionNumber: 1,
-              createdAt: new Date().toISOString(),
-              status: 'Draft',
-            },
-          ],
-          provenance: {
-            sourceId: sources[0]?.id || 'src-custom',
-            sourceName: sources[0]?.name || 'Initial Source Document',
-            sourceVersion: 1,
-            generatedAt: new Date().toISOString(),
-            modelIdentifier: 'lf-generator-v1',
-            generationVersion: '1.0.0',
-          },
-        },
-        {
-          id: generateId(),
-          title: `Revision Sheet: Key Takeaways`,
-          type: 'Revision Sheet',
-          status: 'Draft',
-          objectiveCoverage: objectives.map((o) => ({
-            objectiveId: o.id,
-            identifier: o.identifier,
-            status: 'Covered' as const,
-          })),
-          lastUpdated: new Date().toISOString(),
-          content: `## Revision Summary\n\n| Concept | Core Summary |\n|---|---|\n| Stage 1 | Initial foundation |\n| Stage 2 | Key transition |\n| Stage 3 | Final outcome |`,
-          versions: [
-            {
-              versionNumber: 1,
-              createdAt: new Date().toISOString(),
-              status: 'Draft',
-            },
-          ],
-          provenance: {
-            sourceId: sources[0]?.id || 'src-custom',
-            sourceName: sources[0]?.name || 'Initial Source Document',
-            sourceVersion: 1,
-            generatedAt: new Date().toISOString(),
-            modelIdentifier: 'lf-generator-v1',
-            generationVersion: '1.0.0',
-          },
-        },
-      ],
+      assets: mappedAssets,
       qualityWarnings: [],
     };
 
@@ -316,6 +262,7 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
     onCreateUnit(newUnit);
     onClose();
   };
+
 
   return (
     <Modal
@@ -631,6 +578,13 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
                 />
               </div>
             </div>
+          ) : errorMsg ? (
+            <div>
+              <div className="alert alert-error mb-4" style={{ backgroundColor: 'var(--color-error-50)', color: 'var(--color-error-800)', padding: 'var(--space-4)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-error-200)' }}>
+                <div className="font-semibold mb-1 text-sm">Generation Failed</div>
+                <p className="text-sm m-0">{errorMsg}</p>
+              </div>
+            </div>
           ) : (
             <div>
               <div className="alert alert-info mb-4">
@@ -711,7 +665,7 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
               onClick={handleStartGeneration}
             >
               <IconSparkles size={16} />
-              <span>{isGenerating ? 'Generating...' : 'Generate Learning Pack'}</span>
+              <span>{isGenerating ? 'Generating...' : errorMsg ? 'Retry Generation' : 'Generate Learning Pack'}</span>
             </button>
           )}
         </div>

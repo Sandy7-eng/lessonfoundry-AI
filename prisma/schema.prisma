@@ -8,9 +8,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 // ── Enums
@@ -23,6 +22,7 @@ enum UserRole {
 enum UnitStatus {
   DRAFT
   GENERATING
+  GENERATED
   NEEDS_REVIEW
   APPROVED
 }
@@ -175,7 +175,7 @@ model Source {
   trusted   Boolean      @default(false)
   sizeBytes Int?
   pageCount Int?
-  preview   String?      @db.Text
+  preview   String?     
   version   Int          @default(1)
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
@@ -193,7 +193,7 @@ model Objective {
   id           String      @id @default(cuid())
   unitId       String
   identifier   String
-  text         String      @db.Text
+  text         String     
   bloomLevel   BloomLevel?
   displayOrder Int         @default(0)
   createdAt    DateTime    @default(now())
@@ -212,10 +212,10 @@ model Constraint {
   id                    String             @id @default(cuid())
   unitId                String             @unique
   difficulty            DifficultyLevel    @default(CORE)
-  vocabularyConstraints String?            @db.Text
+  vocabularyConstraints String?           
   contentLength         ContentLength      @default(STANDARD)
   answerRevealPolicy    AnswerRevealPolicy @default(AFTER_ATTEMPT)
-  teacherNotes          String?            @db.Text
+  teacherNotes          String?           
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
 
@@ -231,7 +231,7 @@ model Asset {
   unitId    String
   type      AssetType
   title     String
-  content   String      @db.Text
+  content   String     
   status    AssetStatus @default(DRAFT)
   version   Int         @default(1)
   createdAt DateTime    @default(now())
@@ -255,8 +255,8 @@ model Asset {
 model Question {
   id           String             @id @default(cuid())
   assetId      String
-  content      String             @db.Text
-  answer       String             @db.Text
+  content      String            
+  answer       String            
   difficulty   QuestionDifficulty @default(CORE)
   displayOrder Int                @default(0)
   createdAt    DateTime           @default(now())
@@ -296,7 +296,7 @@ model Review {
   assetId   String
   userId    String
   status    ReviewStatus @default(DRAFT)
-  comment   String?      @db.Text
+  comment   String?     
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
@@ -317,9 +317,9 @@ model QualityIssue {
   questionId      String?
   type            String
   severity        QualityIssueSeverity
-  description     String               @db.Text
-  explanation     String?              @db.Text
-  suggestedAction String?              @db.Text
+  description     String              
+  explanation     String?             
+  suggestedAction String?             
   status          QualityIssueStatus   @default(OPEN)
   resolvedAt      DateTime?
   createdAt       DateTime             @default(now())
@@ -347,7 +347,7 @@ model UnitVersion {
   modelIdentifier   String?
   generationVersion String?
   teacherAction     String?
-  note              String?       @db.Text
+  note              String?      
   createdAt         DateTime      @default(now())
 
   unit Unit @relation(fields: [unitId], references: [id], onDelete: Cascade)
@@ -364,8 +364,8 @@ model AssetVersion {
   assetId         String
   versionNumber   Int
   status          AssetStatus
-  note            String?     @db.Text
-  contentSnapshot String?     @db.Text
+  note            String?    
+  contentSnapshot String?    
   createdAt       DateTime    @default(now())
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
@@ -383,7 +383,7 @@ model Provenance {
   sourceId          String?
   modelIdentifier   String
   generationVersion String
-  generationConfig  Json?
+  generationConfig  String?
   generatedAt       DateTime @default(now())
 
   asset  Asset?  @relation(fields: [assetId], references: [id], onDelete: Cascade)

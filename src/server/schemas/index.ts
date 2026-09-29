@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 // ── Enums
 export const UserRoleSchema = z.enum(['TEACHER', 'ADMIN']);
-export const UnitStatusSchema = z.enum(['DRAFT', 'GENERATING', 'NEEDS_REVIEW', 'APPROVED']);
+export const UnitStatusSchema = z.enum(['DRAFT', 'GENERATING', 'GENERATED', 'NEEDS_REVIEW', 'APPROVED']);
 export const SourceTypeSchema = z.enum(['PDF', 'DOCUMENT', 'TEXT', 'URL']);
 export const SourceStatusSchema = z.enum(['UPLOADING', 'PROCESSING', 'READY', 'ERROR']);
 export const AssetTypeSchema = z.enum([

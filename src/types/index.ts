@@ -13,7 +13,7 @@ export interface User {
 }
 
 // ── Unit Status ──────────────────────────────────────────────
-export type UnitStatus = 'Draft' | 'Generating' | 'Needs Review' | 'Approved';
+export type UnitStatus = 'Draft' | 'Generating' | 'Generated' | 'Needs Review' | 'Approved';
 
 // ── Asset Status ─────────────────────────────────────────────
 export type AssetStatus = 'Draft' | 'Approved' | 'Needs Revision';
@@ -97,7 +97,7 @@ export interface Asset {
   lastUpdated: string;
   content: string;
   versions: AssetVersion[];
-  provenance: ProvenanceInfo;
+  provenance?: ProvenanceInfo;
 }
 
 // ── Quality Warning ───────────────────────────────────────────

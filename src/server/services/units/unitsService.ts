@@ -7,6 +7,15 @@ export type UpdateUnitInput = z.infer<typeof UpdateUnitSchema>;
 
 export class UnitsService {
   static async getAllUnits() {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    await prisma.unit.updateMany({
+      where: {
+        status: 'GENERATING',
+        updatedAt: { lt: fiveMinutesAgo },
+      },
+      data: { status: 'DRAFT' },
+    });
+
     return prisma.unit.findMany({
       include: {
         user: { select: { id: true, name: true, email: true } },
