@@ -17,6 +17,7 @@ import type {
   ResolveQualityIssueSchema,
   CreateUnitVersionSchema,
 } from '@/server/schemas';
+import type { VersionHistoryEntry } from '@/types';
 
 export type CreateUnitPayload = z.infer<typeof CreateUnitSchema>;
 export type UpdateUnitPayload = z.infer<typeof UpdateUnitSchema>;
@@ -175,7 +176,7 @@ export const apiClient = {
 
   // Versions
   getVersions: (unitId: string) =>
-    request<unknown[]>(`/api/units/${encodeURIComponent(unitId)}/versions`),
+    request<VersionHistoryEntry[]>(`/api/units/${encodeURIComponent(unitId)}/versions`),
   createVersionSnapshot: (unitId: string, data: Omit<CreateUnitVersionPayload, 'unitId'>) =>
     request<unknown>(`/api/units/${encodeURIComponent(unitId)}/versions`, {
       method: 'POST',

@@ -16,6 +16,36 @@ export class QualityService {
     });
   }
 
+  static async auditGeneratedIssueSet(
+    unitId: string,
+    issues: Array<{
+      assetId?: string;
+      questionId?: string;
+      type: string;
+      severity: 'ERROR' | 'WARNING' | 'INFO';
+      description: string;
+      explanation?: string;
+      suggestedAction?: string;
+      status?: 'OPEN' | 'RESOLVED' | 'DISMISSED';
+    }>
+  ) {
+    const created: Array<ReturnType<typeof prisma.qualityIssue.create>> = [];
+
+    for (const issue of issues) {
+      created.push(
+        prisma.qualityIssue.create({
+          data: {
+            ...issue,
+            unitId,
+            status: issue.status ?? 'OPEN',
+          },
+        })
+      );
+    }
+
+    return Promise.all(created);
+  }
+
   static async createQualityIssue(input: CreateQualityIssueInput) {
     const validated = CreateQualityIssueSchema.parse(input);
     return prisma.qualityIssue.create({

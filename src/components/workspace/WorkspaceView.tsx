@@ -48,26 +48,138 @@ export function WorkspaceView({
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('learning-pack');
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [selectedSource, setSelectedSource] = useState<Source | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
-  // Asset status update
-  const handleUpdateAssetStatus = (assetId: string, status: AssetStatus) => {
-    const updatedAssets = unit.assets.map((a) =>
-      a.id === assetId ? { ...a, status, lastUpdated: new Date().toISOString() } : a
-    );
-    const updatedUnit = {
-      ...unit,
-      assets: updatedAssets,
-      updatedAt: new Date().toISOString(),
-    };
-    onUpdateUnit(updatedUnit);
+  const submitAssetReview = async (assetId: string, status: AssetStatus) => {
+    const response = await fetch(`/api/units/${encodeURIComponent(unit.id)}/reviews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        assetId,
+        status: status.toUpperCase().replace(/\s+/g, '_'),
+      }),
+    });
 
-    if (selectedAsset && selectedAsset.id === assetId) {
-      setSelectedAsset({ ...selectedAsset, status });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.message || 'Unable to save the asset review');
+    }
+
+    return response.json() as Promise<{
+      createdAt: string;
+      comment?: string | null;
+      user?: { name?: string };
+    }>;
+  };
+
+  const handleUpdateAssetStatus = async (assetId: string, status: AssetStatus) => {
+    try {
+      setReviewError(null);
+      const review = await submitAssetReview(assetId, status);
+      const updatedAssets = unit.assets.map((asset) =>
+        asset.id === assetId
+          ? {
+              ...asset,
+              status,
+              lastUpdated: review.createdAt,
+              review: {
+                status,
+                reviewerName: review.user?.name ?? 'Teacher',
+                reviewedAt: review.createdAt,
+                comment: review.comment ?? undefined,
+              },
+            }
+          : asset
+      );
+      const updatedUnit = {
+        ...unit,
+        assets: updatedAssets,
+        updatedAt: new Date().toISOString(),
+      };
+      onUpdateUnit(updatedUnit);
+
+      if (selectedAsset && selectedAsset.id === assetId) {
+        setSelectedAsset(updatedAssets.find((asset) => asset.id === assetId) ?? selectedAsset);
+      }
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : 'Unable to save the asset review');
+    }
+  };
+
+  const handleRegenerateAsset = async (assetId: string) => {
+    const targetAsset = unit.assets.find((asset) => asset.id === assetId);
+    if (!targetAsset || targetAsset.status === 'Approved') {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/units/${encodeURIComponent(unit.id)}/assets?assetId=${encodeURIComponent(assetId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'regenerate' }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Unable to regenerate asset');
+      }
+
+      const data = await response.json();
+      const regenerated = data.asset as Asset | undefined;
+      if (!regenerated) return;
+
+      const updatedAssets = unit.assets.map((asset) =>
+        asset.id === assetId
+          ? {
+              ...asset,
+              content: regenerated.content ?? asset.content,
+              status: 'Draft' as AssetStatus,
+              lastUpdated: new Date().toISOString(),
+            }
+          : asset
+      );
+
+      const updatedUnit = {
+        ...unit,
+        assets: updatedAssets,
+        updatedAt: new Date().toISOString(),
+      };
+      onUpdateUnit(updatedUnit);
+
+      if (selectedAsset && selectedAsset.id === assetId) {
+        setSelectedAsset({
+          ...selectedAsset,
+          content: regenerated.content ?? selectedAsset.content,
+          status: 'Draft' as AssetStatus,
+        });
+      }
+    } catch (error) {
+      console.error('Regeneration failed', error);
     }
   };
 
   // Asset content save
-  const handleSaveAssetContent = (assetId: string, updatedContent: string) => {
+  const handleSaveAssetContent = async (assetId: string, updatedContent: string) => {
+    const targetAsset = unit.assets.find((asset) => asset.id === assetId);
+    if (!targetAsset || targetAsset.status === 'Approved') {
+      setReviewError('Approved assets cannot be modified. Request revision before editing.');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/units/${encodeURIComponent(unit.id)}/assets?assetId=${encodeURIComponent(assetId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: updatedContent }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'Unable to save asset content');
+      }
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : 'Unable to save asset content');
+      return;
+    }
+
     const updatedAssets = unit.assets.map((a) =>
       a.id === assetId
         ? {
@@ -99,17 +211,42 @@ export function WorkspaceView({
   };
 
   // Approve all assets
-  const handleApproveAllAssets = () => {
-    const updatedAssets = unit.assets.map((a) => ({
-      ...a,
-      status: 'Approved' as AssetStatus,
-    }));
-    onUpdateUnit({
-      ...unit,
-      assets: updatedAssets,
-      status: 'Approved',
-      updatedAt: new Date().toISOString(),
-    });
+  const handleApproveAllAssets = async () => {
+    try {
+      setReviewError(null);
+      const pendingAssets = unit.assets.filter((asset) => asset.status !== 'Approved');
+      const reviews = await Promise.all(
+        pendingAssets.map(async (asset) => ({
+          assetId: asset.id,
+          review: await submitAssetReview(asset.id, 'Approved'),
+        }))
+      );
+      const reviewByAssetId = new Map(reviews.map(({ assetId, review }) => [assetId, review]));
+      const updatedAssets = unit.assets.map((asset) => {
+        const review = reviewByAssetId.get(asset.id);
+        return review
+          ? {
+              ...asset,
+              status: 'Approved' as AssetStatus,
+              lastUpdated: review.createdAt,
+              review: {
+                status: 'Approved' as AssetStatus,
+                reviewerName: review.user?.name ?? 'Teacher',
+                reviewedAt: review.createdAt,
+                comment: review.comment ?? undefined,
+              },
+            }
+          : asset;
+      });
+      onUpdateUnit({
+        ...unit,
+        assets: updatedAssets,
+        status: 'Approved',
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : 'Unable to approve assets');
+    }
   };
 
   // Unit status update
@@ -372,6 +509,11 @@ export function WorkspaceView({
       {/* Workspace Active Tab Content */}
       <div className="workspace-content">
         <div className="content-area-wide">
+          {reviewError && (
+            <div className="alert alert-danger" role="alert" style={{ marginBottom: 'var(--space-4)' }}>
+              {reviewError}
+            </div>
+          )}
           {activeTab === 'sources' && (
             <SourcesTab
               sources={unit.sources}
@@ -396,6 +538,7 @@ export function WorkspaceView({
               assets={unit.assets}
               onViewAsset={(asset) => setSelectedAsset(asset)}
               onUpdateStatus={handleUpdateAssetStatus}
+              onRegenerateAsset={handleRegenerateAsset}
               onApproveAll={handleApproveAllAssets}
             />
           )}
@@ -438,6 +581,7 @@ export function WorkspaceView({
         onClose={() => setSelectedAsset(null)}
         onSaveContent={handleSaveAssetContent}
         onUpdateStatus={handleUpdateAssetStatus}
+        onRegenerateAsset={handleRegenerateAsset}
       />
 
       {/* Source Preview Modal */}

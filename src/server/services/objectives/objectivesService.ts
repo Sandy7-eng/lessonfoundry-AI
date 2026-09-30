@@ -22,6 +22,34 @@ export class ObjectivesService {
     });
   }
 
+  static async ensureAlignment(input: CreateObjectiveAlignmentInput) {
+    const validated = CreateObjectiveAlignmentSchema.parse(input);
+
+    const alignmentWhere = {
+      objectiveId: validated.objectiveId,
+      assetId: validated.assetId ?? null,
+      questionId: validated.questionId ?? null,
+    };
+
+    const existing = await prisma.objectiveAlignment.findFirst({
+      where: alignmentWhere,
+    });
+
+    if (existing) {
+      if (existing.status !== validated.status) {
+        return prisma.objectiveAlignment.update({
+          where: { id: existing.id },
+          data: { status: validated.status },
+        });
+      }
+      return existing;
+    }
+
+    return prisma.objectiveAlignment.create({
+      data: validated,
+    });
+  }
+
   static async createObjective(input: CreateObjectiveInput) {
     const validated = CreateObjectiveSchema.parse(input);
     return prisma.objective.create({

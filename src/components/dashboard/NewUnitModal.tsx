@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import type { LearningUnit, Source, LearningObjective, DifficultyLevel, AnswerRevealPolicy } from '@/types';
 import { SUBJECTS, TARGET_LEVELS, MOCK_CONSTRAINTS } from '@/lib/mockData';
 import { generateId } from '@/lib/utils';
@@ -49,6 +49,41 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
   ]);
   const [newSourceName, setNewSourceName] = useState('');
   const [newSourceType, setNewSourceType] = useState<'PDF' | 'Document' | 'Text'>('PDF');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const inferSourceType = (fileName: string): Source['type'] => {
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    if (extension === 'pdf') return 'PDF';
+    if (extension === 'doc' || extension === 'docx') return 'Document';
+    return 'Text';
+  };
+
+  const handleFileSelection = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    if (selectedFiles.length === 0) return;
+
+    const uploadedSources: Source[] = selectedFiles.map((file) => ({
+      id: generateId(),
+      name: file.name,
+      type: inferSourceType(file.name),
+      status: 'Ready',
+      trusted: true,
+      size: formatFileSize(file.size),
+      pages: file.type === 'application/pdf' ? Math.max(1, Math.ceil(file.size / 25000)) : 1,
+      uploadedAt: new Date().toISOString(),
+      version: 1,
+      preview: `Uploaded curriculum source: ${file.name}`,
+    }));
+
+    setSources((current) => [...current, ...uploadedSources]);
+    event.target.value = '';
+  };
 
   // Step 3: Objectives & Constraints
   const [objectives, setObjectives] = useState<LearningObjective[]>([
@@ -133,6 +168,85 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
     return 'Draft';
   };
 
+  type ApiObjective = {
+    id: string;
+    identifier: string;
+    text: string;
+  };
+
+  type ApiAlignment = {
+    objectiveId: string;
+    status?: 'COVERED' | 'PARTIAL' | 'MISSING';
+  };
+
+  type ApiAsset = {
+    id: string;
+    title: string;
+    type: string;
+    status: string;
+    alignments?: ApiAlignment[];
+    reviews?: Array<{
+      status: string;
+      comment?: string | null;
+      createdAt: string;
+      user?: { name: string };
+    }>;
+    assetVersions?: Array<{
+      versionNumber: number;
+      createdAt: string;
+      note?: string | null;
+      status: string;
+    }>;
+    provenances?: Array<{
+      sourceId?: string | null;
+      generatedAt: string;
+      modelIdentifier: string;
+      generationVersion: string;
+    }>;
+    updatedAt?: string;
+    content?: string;
+  };
+
+  type ApiSource = {
+    id: string;
+    name: string;
+    type: string;
+    trusted: boolean;
+    createdAt: string;
+    version: number;
+    preview?: string | null;
+  };
+
+  type ApiQualityIssue = {
+    id: string;
+    type: string;
+    severity: 'ERROR' | 'WARNING' | 'INFO';
+    description: string;
+    explanation?: string | null;
+    suggestedAction?: string | null;
+    assetId?: string | null;
+    questionId?: string | null;
+    status: 'OPEN' | 'RESOLVED' | 'DISMISSED';
+    asset?: {
+      id: string;
+      title: string;
+      type: string;
+    } | null;
+  };
+
+  type ApiUnit = {
+    title?: string;
+    subject?: string;
+    targetLevel?: string;
+    status?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    objectives?: ApiObjective[];
+    assets?: ApiAsset[];
+    sources?: ApiSource[];
+    qualityIssues?: ApiQualityIssue[];
+  };
+
   const handleStartGeneration = async () => {
     setIsGenerating(true);
     setErrorMsg(null);
@@ -183,66 +297,103 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
       setTimeout(() => {
         finishCreation(unitId, dbUnit);
       }, 600);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Generation Error', error);
       setIsGenerating(false);
       setGenerationProgress(0);
-      setErrorMsg(error.message || 'Generation failed. Please try again.');
+      const message = error instanceof Error ? error.message : 'Generation failed. Please try again.';
+      setErrorMsg(message);
     }
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const finishCreation = (unitId: string, dbUnit: any) => {
-    // Map DB asset records to frontend Asset shape
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mappedAssets: LearningUnit['assets'] = (dbUnit.assets ?? []).map((a: any) => ({
-      id: a.id,
-      title: a.title,
-      type: mapAssetType(a.type),
-      status: mapAssetStatus(a.status),
-      objectiveCoverage: [],
-      lastUpdated: a.updatedAt ?? new Date().toISOString(),
-      content: a.content ?? '',
-      versions: (a.assetVersions ?? []).map((v: any) => ({
-        versionNumber: v.versionNumber,
-        createdAt: v.createdAt,
-        note: v.note ?? undefined,
-        status: mapAssetStatus(v.status),
-      })),
-      provenance: a.provenances?.[0] ? {
-        sourceId: a.provenances[0].sourceId ?? '',
-        sourceName: dbUnit.sources?.[0]?.name ?? 'Source',
-        sourceVersion: 1,
-        generatedAt: a.provenances[0].generatedAt,
-        modelIdentifier: a.provenances[0].modelIdentifier,
-        generationVersion: a.provenances[0].generationVersion,
-      } : undefined,
-    }));
+  const finishCreation = (unitId: string, dbUnit: ApiUnit) => {
+    const objectiveMap = new Map<string, ApiObjective>((dbUnit.objectives ?? []).map((objective) => [objective.id, objective]));
 
-    const mappedSources: LearningUnit['sources'] = (dbUnit.sources ?? []).map((s: any) => ({
-      id: s.id,
-      name: s.name,
-      type: s.type as LearningUnit['sources'][0]['type'],
+    const mappedAssets: LearningUnit['assets'] = (dbUnit.assets ?? []).map((asset) => {
+      const coverageMap = new Map<string, { objectiveId: string; identifier: string; status: 'Covered' | 'Partial' | 'Missing' }>();
+      const alignments = Array.isArray(asset.alignments) ? asset.alignments : [];
+
+      for (const alignment of alignments) {
+        const objective = objectiveMap.get(alignment.objectiveId);
+        if (!objective) continue;
+
+        const status = alignment.status === 'COVERED' ? 'Covered' : alignment.status === 'PARTIAL' ? 'Partial' : 'Missing';
+        const existing = coverageMap.get(alignment.objectiveId);
+        if (!existing || (existing.status === 'Missing' && status !== 'Missing')) {
+          coverageMap.set(alignment.objectiveId, {
+            objectiveId: alignment.objectiveId,
+            identifier: objective.identifier,
+            status,
+          });
+        }
+      }
+
+      return {
+        id: asset.id,
+        title: asset.title,
+        type: mapAssetType(asset.type),
+        status: mapAssetStatus(asset.status),
+        objectiveCoverage: Array.from(coverageMap.values()),
+        lastUpdated: asset.updatedAt ?? new Date().toISOString(),
+        content: asset.content ?? '',
+        review: asset.reviews?.[0] ? {
+          status: mapAssetStatus(asset.reviews[0].status),
+          reviewerName: asset.reviews[0].user?.name ?? 'Teacher',
+          reviewedAt: asset.reviews[0].createdAt,
+          comment: asset.reviews[0].comment ?? undefined,
+        } : undefined,
+        versions: (asset.assetVersions ?? []).map((version) => ({
+          versionNumber: version.versionNumber,
+          createdAt: version.createdAt,
+          note: version.note ?? undefined,
+          status: mapAssetStatus(version.status),
+        })),
+        provenance: asset.provenances?.[0] ? {
+          sourceId: asset.provenances[0].sourceId ?? '',
+          sourceName: dbUnit.sources?.[0]?.name ?? 'Source',
+          sourceVersion: 1,
+          generatedAt: asset.provenances[0].generatedAt,
+          modelIdentifier: asset.provenances[0].modelIdentifier,
+          generationVersion: asset.provenances[0].generationVersion,
+        } : undefined,
+      };
+    });
+
+    const mappedSources: LearningUnit['sources'] = (dbUnit.sources ?? []).map((source) => ({
+      id: source.id,
+      name: source.name,
+      type: source.type as LearningUnit['sources'][0]['type'],
       status: 'Ready' as const,
-      trusted: s.trusted,
-      uploadedAt: s.createdAt,
-      version: s.version,
-      preview: s.preview ?? undefined,
+      trusted: source.trusted,
+      uploadedAt: source.createdAt,
+      version: source.version,
+      preview: source.preview ?? undefined,
     }));
 
-    const mappedObjectives: LearningUnit['objectives'] = (dbUnit.objectives ?? []).map((o: any) => ({
-      id: o.id,
-      identifier: o.identifier,
-      text: o.text,
+    const mappedObjectives: LearningUnit['objectives'] = (dbUnit.objectives ?? []).map((objective) => ({
+      id: objective.id,
+      identifier: objective.identifier,
+      text: objective.text,
       bloomsLevel: undefined,
+    }));
+
+    const mappedQualityWarnings: LearningUnit['qualityWarnings'] = (dbUnit.qualityIssues ?? []).filter((issue) => issue.status === 'OPEN').map((issue) => ({
+      id: issue.id,
+      severity: issue.severity === 'ERROR' ? 'Error' : issue.severity === 'WARNING' ? 'Warning' : 'Info',
+      type: issue.type,
+      affectedAssetId: issue.assetId ?? issue.asset?.id ?? '',
+      affectedAssetTitle: issue.asset?.title ?? 'Generated Asset',
+      problem: issue.description,
+      explanation: issue.explanation ?? 'No additional explanation provided.',
+      suggestedAction: issue.suggestedAction ?? 'Review the generated content for remediation.',
     }));
 
     const newUnit: LearningUnit = {
       id: unitId,
-      title: dbUnit.title ?? title.trim() || 'Untitled Curriculum Unit',
+      title: dbUnit.title ?? (title.trim() || 'Untitled Curriculum Unit'),
       subject: dbUnit.subject ?? subject,
       targetLevel: dbUnit.targetLevel ?? targetLevel,
-      status: mapUnitStatus(dbUnit.status),
+      status: mapUnitStatus(dbUnit.status ?? 'DRAFT'),
       createdAt: dbUnit.createdAt ?? new Date().toISOString(),
       updatedAt: dbUnit.updatedAt ?? new Date().toISOString(),
       sources: mappedSources.length > 0 ? mappedSources : sources,
@@ -255,7 +406,7 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
         answerRevealPolicy: answerPolicy,
       },
       assets: mappedAssets,
-      qualityWarnings: [],
+      qualityWarnings: mappedQualityWarnings,
     };
 
     setIsGenerating(false);
@@ -383,33 +534,29 @@ export function NewUnitModal({ isOpen, onClose, onCreateUnit }: NewUnitModalProp
               ))}
             </div>
 
-            {/* Upload Zone simulation */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              accept=".pdf,.doc,.docx,.txt,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              onChange={handleFileSelection}
+            />
             <div
               className="upload-zone mb-4"
-              onClick={() => {
-                const sampleName = prompt('Enter source file or reference name:', 'Supplementary_Teacher_Notes.docx');
-                if (sampleName) {
-                  setSources([
-                    ...sources,
-                    {
-                      id: generateId(),
-                      name: sampleName,
-                      type: 'Document',
-                      status: 'Ready',
-                      trusted: true,
-                      size: '340 KB',
-                      pages: 6,
-                      uploadedAt: new Date().toISOString(),
-                      version: 1,
-                      preview: 'Uploaded reference content.',
-                    },
-                  ]);
+              onClick={() => fileInputRef.current?.click()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  fileInputRef.current?.click();
                 }
               }}
+              role="button"
+              tabIndex={0}
             >
               <IconUpload size={28} className="text-secondary mb-2" />
               <div className="font-semibold text-sm">Click to upload curriculum documents</div>
-              <div className="text-xs text-secondary mt-1">PDF, DOCX, or TXT up to 25MB</div>
+              <div className="text-xs text-secondary mt-1">PDF, DOCX, TXT, or multiple files</div>
             </div>
 
             {/* Quick add manual source */}

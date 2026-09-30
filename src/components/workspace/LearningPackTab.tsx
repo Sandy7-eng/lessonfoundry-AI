@@ -13,6 +13,7 @@ interface LearningPackTabProps {
   assets: Asset[];
   onViewAsset: (asset: Asset) => void;
   onUpdateStatus: (assetId: string, status: AssetStatus) => void;
+  onRegenerateAsset: (assetId: string) => void;
   onApproveAll: () => void;
 }
 
@@ -20,6 +21,7 @@ export function LearningPackTab({
   assets,
   onViewAsset,
   onUpdateStatus,
+  onRegenerateAsset,
   onApproveAll,
 }: LearningPackTabProps) {
   const [selectedType, setSelectedType] = useState<string>('All');
@@ -145,6 +147,13 @@ export function LearningPackTab({
                 <span className={`badge ${statusClass}`}>{asset.status}</span>
               </div>
 
+              {asset.review && (
+                <div className="text-xs text-secondary mt-2">
+                  Reviewed by {asset.review.reviewerName} on {new Date(asset.review.reviewedAt).toLocaleString()}
+                  {asset.review.comment ? ` · ${asset.review.comment}` : ''}
+                </div>
+              )}
+
               <div className="asset-card-body flex-1">
                 {/* Content snippet */}
                 <p
@@ -200,26 +209,50 @@ export function LearningPackTab({
                     <IconEye size={14} /> View / Edit
                   </button>
 
-                  {asset.status !== 'Approved' ? (
-                    <button
-                      type="button"
-                      className="btn btn-success btn-sm"
-                      onClick={() => onUpdateStatus(asset.id, 'Approved')}
-                      title="Approve Asset"
-                    >
-                      <IconCheck size={14} /> Approve
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm text-xs"
-                      onClick={() => onUpdateStatus(asset.id, 'Needs Revision')}
-                      title="Flag for revision"
-                      style={{ color: 'var(--color-error-600)' }}
-                    >
-                      Revise
-                    </button>
-                  )}
+                  <>
+                    {asset.status !== 'Approved' && (
+                      <button
+                        type="button"
+                        className="btn btn-success btn-sm"
+                        onClick={() => onUpdateStatus(asset.id, 'Approved')}
+                        title="Approve Asset"
+                      >
+                        <IconCheck size={14} /> Approve
+                      </button>
+                    )}
+                    {asset.status !== 'Needs Revision' ? (
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        onClick={() => onUpdateStatus(asset.id, 'Needs Revision')}
+                        title="Request changes to this asset"
+                      >
+                        Request Revision
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => onUpdateStatus(asset.id, 'Draft')}
+                        title="Return this asset to draft"
+                      >
+                        Return to Draft
+                      </button>
+                    )}
+                    {asset.status !== 'Approved' && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onRegenerateAsset(asset.id);
+                        }}
+                        title="Regenerate this asset"
+                      >
+                        Regenerate
+                      </button>
+                    )}
+                  </>
                 </div>
               </div>
             </div>

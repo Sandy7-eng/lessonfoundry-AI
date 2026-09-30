@@ -32,7 +32,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       );
     }
 
-    const versions = await VersionsService.getUnitVersions(id);
+    const versions = await VersionsService.getVersionHistory(id);
     return NextResponse.json(versions, { status: 200 });
   } catch (error) {
     return handleApiError(error);

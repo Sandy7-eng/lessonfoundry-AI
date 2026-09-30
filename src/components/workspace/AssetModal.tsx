@@ -16,6 +16,7 @@ interface AssetModalProps {
   onClose: () => void;
   onSaveContent: (assetId: string, updatedContent: string) => void;
   onUpdateStatus: (assetId: string, status: AssetStatus) => void;
+  onRegenerateAsset?: (assetId: string) => void;
 }
 
 function AssetModalInner({
@@ -23,11 +24,13 @@ function AssetModalInner({
   onClose,
   onSaveContent,
   onUpdateStatus,
+  onRegenerateAsset,
 }: {
   asset: Asset;
   onClose: () => void;
   onSaveContent: (assetId: string, updatedContent: string) => void;
   onUpdateStatus: (assetId: string, status: AssetStatus) => void;
+  onRegenerateAsset?: (assetId: string) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [content, setContent] = useState(asset.content);
@@ -61,6 +64,7 @@ function AssetModalInner({
                 asset.status === 'Approved' ? 'btn-success' : 'btn-secondary'
               }`}
               onClick={() => onUpdateStatus(asset.id, 'Approved')}
+              disabled={asset.status === 'Approved'}
             >
               <IconCheck size={14} /> Approved
             </button>
@@ -107,13 +111,26 @@ function AssetModalInner({
                 </button>
               </>
             ) : (
-              <button
-                type="button"
-                className="btn btn-secondary btn-sm"
-                onClick={() => setIsEditing(true)}
-              >
-                <IconEdit size={14} /> Edit Content
-              </button>
+              <>
+                {onRegenerateAsset && asset.status !== 'Approved' && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => onRegenerateAsset(asset.id)}
+                  >
+                    Regenerate
+                  </button>
+                )}
+                {asset.status !== 'Approved' && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => setIsEditing(true)}
+                  >
+                    <IconEdit size={14} /> Edit Content
+                  </button>
+                )}
+              </>
             )}
             <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>
               Done
@@ -224,6 +241,19 @@ function AssetModalInner({
           )}
         </div>
 
+        {asset.status === 'Approved' && !isEditing && (
+          <p className="text-xs text-secondary">
+            Approved content is locked. Request revision before editing.
+          </p>
+        )}
+
+        {asset.review && (
+          <div className="text-xs text-secondary">
+            <strong>Last review:</strong> {asset.review.status} by {asset.review.reviewerName} on {formatDate(asset.review.reviewedAt)}
+            {asset.review.comment ? ` · ${asset.review.comment}` : ''}
+          </div>
+        )}
+
         {/* Version History preview */}
         {asset.versions && asset.versions.length > 0 && (
           <div className="text-xs text-secondary flex items-center gap-3">
@@ -243,6 +273,7 @@ export function AssetModal({
   onClose,
   onSaveContent,
   onUpdateStatus,
+  onRegenerateAsset,
 }: AssetModalProps) {
   if (!asset) return null;
   return (
@@ -252,6 +283,7 @@ export function AssetModal({
       onClose={onClose}
       onSaveContent={onSaveContent}
       onUpdateStatus={onUpdateStatus}
+      onRegenerateAsset={onRegenerateAsset}
     />
   );
 }

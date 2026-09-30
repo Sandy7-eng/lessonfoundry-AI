@@ -79,6 +79,13 @@ export interface AssetVersion {
   status: AssetStatus;
 }
 
+export interface AssetReview {
+  status: AssetStatus;
+  reviewerName: string;
+  reviewedAt: string;
+  comment?: string;
+}
+
 export interface ProvenanceInfo {
   sourceId: string;
   sourceName: string;
@@ -97,6 +104,7 @@ export interface Asset {
   lastUpdated: string;
   content: string;
   versions: AssetVersion[];
+  review?: AssetReview;
   provenance?: ProvenanceInfo;
 }
 
@@ -133,13 +141,18 @@ export interface LearningUnit {
 // ── Version History ───────────────────────────────────────────
 export interface VersionHistoryEntry {
   id: string;
+  recordType?: 'unit' | 'asset';
   versionNumber: number;
   timestamp: string;
   sourceVersion: number;
   assetVersion: number;
-  status: UnitStatus;
+  status: UnitStatus | AssetStatus;
   modelIdentifier: string;
   generationVersion: string;
+  sourceReference?: string;
+  assetId?: string;
+  assetTitle?: string;
+  contentSnapshot?: string;
   teacherAction?: string;
   note?: string;
 }

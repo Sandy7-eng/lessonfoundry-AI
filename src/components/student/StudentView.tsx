@@ -27,12 +27,13 @@ export function StudentView({ unit, onExit }: StudentViewProps) {
     revealPolicy === 'Always' ||
     (revealPolicy === 'After Attempt' && quizSubmitted);
 
-  const conceptAsset = unit.assets.find((a) => a.type === 'Concept Explanation');
-  const workedExampleAsset = unit.assets.find((a) => a.type === 'Worked Example');
-  const quizAsset = unit.assets.find((a) => a.type === 'Formative Quiz');
-  const foundationAsset = unit.assets.find((a) => a.type.includes('Foundation'));
-  const extensionAsset = unit.assets.find((a) => a.type.includes('Extension'));
-  const revisionAsset = unit.assets.find((a) => a.type === 'Revision Sheet');
+  const approvedAssets = unit.assets.filter((asset) => asset.status === 'Approved');
+  const conceptAsset = approvedAssets.find((a) => a.type === 'Concept Explanation');
+  const workedExampleAsset = approvedAssets.find((a) => a.type === 'Worked Example');
+  const quizAsset = approvedAssets.find((a) => a.type === 'Formative Quiz');
+  const foundationAsset = approvedAssets.find((a) => a.type.includes('Foundation'));
+  const extensionAsset = approvedAssets.find((a) => a.type.includes('Extension'));
+  const revisionAsset = approvedAssets.find((a) => a.type === 'Revision Sheet');
 
   return (
     <div style={{ backgroundColor: 'var(--color-bg-page)', minHeight: '100vh', paddingBottom: 'var(--space-16)' }}>
@@ -105,6 +106,14 @@ export function StudentView({ unit, onExit }: StudentViewProps) {
             Complete the readings, examine the worked problem, and submit your check for understanding.
           </p>
         </div>
+
+        {approvedAssets.length === 0 && (
+          <div className="student-section" role="status">
+            <div className="student-section-body text-center text-secondary">
+              No approved learning materials are available yet.
+            </div>
+          </div>
+        )}
 
         {/* 1. Concept Explanation */}
         {conceptAsset && (

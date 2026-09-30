@@ -112,6 +112,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const body = await parseJsonBody<{
       id?: string;
       assetId?: string;
+      action?: string;
+      questionId?: string;
       [key: string]: unknown;
     }>(request);
 
@@ -120,6 +122,21 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       request.nextUrl.searchParams.get('id') ||
       body.assetId ||
       body.id;
+
+    if (body.action === 'regenerate') {
+      if (!isValidId(assetId)) {
+        return NextResponse.json(
+          {
+            error: 'Invalid Asset ID',
+            message: 'An asset ID must be provided to regenerate an asset',
+          },
+          { status: 400 }
+        );
+      }
+
+      const regeneratedAsset = await AssetsService.regenerateAsset(id, assetId, body.questionId);
+      return NextResponse.json({ success: true, asset: regeneratedAsset }, { status: 200 });
+    }
 
     if (!isValidId(assetId)) {
       return NextResponse.json(

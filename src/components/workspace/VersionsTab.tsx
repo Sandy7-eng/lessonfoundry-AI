@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { VersionHistoryEntry } from '@/types';
-import { MOCK_VERSION_HISTORY } from '@/lib/mockData';
-import { formatTimestamp, generateId } from '@/lib/utils';
+import { apiClient } from '@/lib/api/client';
+import { formatTimestamp } from '@/lib/utils';
 import {
   IconHistory,
   IconPlus,
@@ -15,26 +15,78 @@ interface VersionsTabProps {
 }
 
 export function VersionsTab({ unitId }: VersionsTabProps) {
-  const [history, setHistory] = useState<VersionHistoryEntry[]>(MOCK_VERSION_HISTORY);
-  const [selectedVersion, setSelectedVersion] = useState<number>(3);
-  const [showDiff, setShowDiff] = useState<boolean>(true);
+  const [history, setHistory] = useState<VersionHistoryEntry[]>([]);
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showSnapshot, setShowSnapshot] = useState(true);
 
-  const handleCreateSnapshot = () => {
-    const nextVer = history.length + 1;
-    const newEntry: VersionHistoryEntry = {
-      id: `ver-${generateId()}`,
-      versionNumber: nextVer,
-      timestamp: new Date().toISOString(),
-      sourceVersion: 1,
-      assetVersion: nextVer * 2,
-      status: 'Needs Review',
-      modelIdentifier: 'lf-generator-v1',
-      generationVersion: '1.0.0',
-      teacherAction: 'Manual snapshot created by teacher',
-      note: `Snapshot recorded for unit ${unitId}`,
+  useEffect(() => {
+    let active = true;
+    apiClient.getVersions(unitId)
+      .then((entries) => {
+        if (!active) return;
+        setHistory(entries);
+        setSelectedVersionId(entries[0]?.id ?? null);
+      })
+      .catch((loadError: unknown) => {
+        if (active) {
+          setError(loadError instanceof Error ? loadError.message : 'Unable to load version history');
+        }
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+
+    return () => {
+      active = false;
     };
-    setHistory([newEntry, ...history]);
-    setSelectedVersion(nextVer);
+  }, [unitId]);
+
+  const selectedVersion = history.find((entry) => entry.id === selectedVersionId) ?? history[0] ?? null;
+  const previousVersion = selectedVersion?.recordType === 'asset'
+    ? history
+        .filter((entry) =>
+          entry.recordType === 'asset' &&
+          entry.assetId === selectedVersion.assetId &&
+          entry.timestamp < selectedVersion.timestamp
+        )
+        .sort((left, right) => right.timestamp.localeCompare(left.timestamp))[0]
+    : undefined;
+
+  const handleCreateSnapshot = async () => {
+    setError(null);
+    setIsSaving(true);
+    try {
+      const unitVersions = history.filter((entry) => entry.recordType === 'unit');
+      const latestAsset = history.find((entry) => entry.recordType === 'asset');
+      await apiClient.createVersionSnapshot(unitId, {
+        versionNumber: Math.max(0, ...unitVersions.map((entry) => entry.versionNumber)) + 1,
+        status: 'NEEDS_REVIEW',
+        assetVersionCount: history.filter((entry) => entry.recordType === 'asset').length,
+        sourceVersion: Math.max(1, ...history.map((entry) => entry.sourceVersion)),
+        modelIdentifier: latestAsset?.modelIdentifier,
+        generationVersion: latestAsset?.generationVersion,
+        teacherAction: 'Manual snapshot created by teacher',
+        note: `Snapshot recorded for unit ${unitId}`,
+      });
+      const entries = await apiClient.getVersions(unitId);
+      setHistory(entries);
+      setSelectedVersionId(entries[0]?.id ?? null);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Unable to save version snapshot');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const statusClass = (status: VersionHistoryEntry['status']) => {
+    if (status === 'Approved') return 'badge-approved';
+    if (status === 'Needs Revision') return 'badge-revision';
+    if (status === 'Needs Review') return 'badge-review';
+    if (status === 'Draft') return 'badge-draft';
+    return 'badge-generating';
   };
 
   return (
@@ -48,21 +100,28 @@ export function VersionsTab({ unitId }: VersionsTabProps) {
               <span>Version History</span>
             </h3>
             <p className="text-xs text-secondary mt-1">
-              Audit trail of teacher revisions, model iterations, and sign-offs for {unitId}.
+              Stored unit snapshots and generated asset versions for {unitId}.
             </p>
           </div>
           <button
             type="button"
             className="btn btn-secondary btn-sm"
             onClick={handleCreateSnapshot}
+            disabled={isSaving}
           >
-            <IconPlus size={14} /> New Snapshot
+            <IconPlus size={14} /> {isSaving ? 'Saving...' : 'New Snapshot'}
           </button>
         </div>
 
+        {error && <p className="text-xs" role="alert" style={{ color: 'var(--color-error-600)' }}>{error}</p>}
+
         <div className="version-timeline">
-          {history.map((entry, idx) => {
-            const isSelected = selectedVersion === entry.versionNumber;
+          {isLoading ? (
+            <p className="text-sm text-secondary">Loading version history...</p>
+          ) : history.length === 0 ? (
+            <p className="text-sm text-secondary">No stored versions for this unit yet.</p>
+          ) : history.map((entry, idx) => {
+            const isSelected = selectedVersion?.id === entry.id;
             const isLatest = idx === 0;
 
             return (
@@ -70,7 +129,7 @@ export function VersionsTab({ unitId }: VersionsTabProps) {
                 key={entry.id}
                 className="version-entry"
                 style={{ cursor: 'pointer' }}
-                onClick={() => setSelectedVersion(entry.versionNumber)}
+                onClick={() => setSelectedVersionId(entry.id)}
               >
                 <div
                   className={`version-dot ${
@@ -87,7 +146,7 @@ export function VersionsTab({ unitId }: VersionsTabProps) {
                 >
                   <div className="flex items-center justify-between gap-2 mb-1">
                     <span className="font-semibold text-sm">
-                      Version {entry.versionNumber}
+                      {entry.recordType === 'asset' ? `${entry.assetTitle} v${entry.versionNumber}` : `Unit Version ${entry.versionNumber}`}
                       {isLatest && (
                         <span className="badge badge-brand" style={{ marginLeft: 6, fontSize: 10 }}>
                           Current
@@ -95,13 +154,7 @@ export function VersionsTab({ unitId }: VersionsTabProps) {
                       )}
                     </span>
                     <span
-                      className={`badge ${
-                        entry.status === 'Approved'
-                          ? 'badge-approved'
-                          : entry.status === 'Needs Review'
-                          ? 'badge-review'
-                          : 'badge-generating'
-                      }`}
+                      className={`badge ${statusClass(entry.status)}`}
                     >
                       {entry.status}
                     </span>
@@ -117,6 +170,10 @@ export function VersionsTab({ unitId }: VersionsTabProps) {
                     </div>
                   )}
 
+                  {entry.sourceReference && (
+                    <div className="text-xs text-secondary mt-1">Source: {entry.sourceReference}</div>
+                  )}
+
                   {entry.note && (
                     <div className="text-xs text-secondary mt-1 italic">
                       &ldquo;{entry.note}&rdquo;
@@ -126,6 +183,7 @@ export function VersionsTab({ unitId }: VersionsTabProps) {
                   <div className="text-xs text-tertiary mt-2">
                     Model: {entry.modelIdentifier} • Gen v{entry.generationVersion}
                   </div>
+                  <div className="text-xs text-tertiary">Source version {entry.sourceVersion}</div>
                 </div>
               </div>
             );
@@ -138,54 +196,43 @@ export function VersionsTab({ unitId }: VersionsTabProps) {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h4 className="font-semibold text-base">
-              Revision Diff: Version {selectedVersion} vs v{Math.max(1, selectedVersion - 1)}
+              {selectedVersion?.recordType === 'asset'
+                ? `Asset Snapshot: ${selectedVersion.assetTitle}`
+                : 'Unit Snapshot'}
             </h4>
             <p className="text-xs text-secondary mt-1">
-              Highlights modifications between sequential generator runs and teacher edits.
+              {selectedVersion ? `Version ${selectedVersion.versionNumber} recorded ${formatTimestamp(selectedVersion.timestamp)}.` : 'Select a stored version to inspect its data.'}
             </p>
           </div>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={() => setShowDiff(!showDiff)}
+            onClick={() => setShowSnapshot(!showSnapshot)}
           >
-            {showDiff ? 'Hide Diff' : 'Show Diff'}
+            {showSnapshot ? 'Hide Snapshot' : 'Show Snapshot'}
           </button>
         </div>
 
-        {showDiff && (
-          <div
-            className="border rounded overflow-hidden"
-            style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-white)' }}
-          >
-            <div
-              className="p-2 border-b text-xs font-semibold flex items-center justify-between"
-              style={{ backgroundColor: 'var(--color-neutral-50)', borderColor: 'var(--color-border)' }}
-            >
-              <span>Asset: Formative Quiz &amp; Revision Sheet</span>
-              <span className="text-secondary font-normal">Unified diff</span>
+        {showSnapshot && selectedVersion && (
+          <div className="flex flex-col gap-4">
+            <div className="grid-2" style={{ gap: 'var(--space-4)' }}>
+              <div>
+                <div className="text-xs font-semibold mb-2">Previous Version</div>
+                <pre className="p-3 border rounded text-xs" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 320, overflowY: 'auto', backgroundColor: 'var(--color-neutral-50)' }}>
+                  {previousVersion?.contentSnapshot ?? 'No earlier asset snapshot is available.'}
+                </pre>
+              </div>
+              <div>
+                <div className="text-xs font-semibold mb-2">Selected Version</div>
+                <pre className="p-3 border rounded text-xs" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 320, overflowY: 'auto', backgroundColor: 'var(--color-neutral-50)' }}>
+                  {selectedVersion.contentSnapshot ?? selectedVersion.note ?? 'This unit snapshot records metadata, not an asset content snapshot.'}
+                </pre>
+              </div>
             </div>
-
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', lineHeight: '1.7' }}>
-              <div className="diff-line text-secondary">@@ -14,6 +14,8 @@ Formative Quiz Section</div>
-              <div className="diff-line"> Q1: Name the four stages of mitosis in order.</div>
-              <div className="diff-line diff-removed">
-                - &gt; Answer Key: Prophase, Metaphase, Anaphase, Telophase.
-              </div>
-              <div className="diff-line diff-added">
-                + &gt; Answer Key: Prophase &rarr; Metaphase &rarr; Anaphase &rarr; Telophase. Award 1 mark for any two correct; 2 marks for all four.
-              </div>
-              <div className="diff-line text-secondary">@@ -32,4 +34,7 @@ Revision Sheet Vocab</div>
-              <div className="diff-line diff-removed">
-                - | Mitosis | Cell division producing identical cells |
-              </div>
-              <div className="diff-line diff-added">
-                + | Mitosis | Cell division producing 2 genetically identical daughter cells |
-              </div>
-              <div className="diff-line diff-added">
-                + | Meiosis | Cell division producing 4 genetically unique haploid cells |
-              </div>
-              <div className="diff-line"> | Chromosome | DNA structure carrying genetic information |</div>
+            <div className="text-xs text-secondary">
+              {selectedVersion.sourceReference && <div>Source: {selectedVersion.sourceReference}</div>}
+              <div>Model: {selectedVersion.modelIdentifier} · Generation {selectedVersion.generationVersion}</div>
+              <div>Asset version: {selectedVersion.assetVersion} · Source version: {selectedVersion.sourceVersion}</div>
             </div>
           </div>
         )}
@@ -198,7 +245,7 @@ export function VersionsTab({ unitId }: VersionsTabProps) {
             <IconShieldCheck size={14} /> Reproducibility &amp; Governance
           </div>
           <p style={{ margin: 0 }}>
-            Every version snapshot binds the exact source files, prompt constraints, and output checksum to prevent regression when updating curriculum packs.
+            Stored history records asset snapshots, source references, model identifiers, generation timestamps, and version numbers.
           </p>
         </div>
       </div>

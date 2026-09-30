@@ -19,9 +19,9 @@ async function test() {
         status: 'GENERATING',
         constraints: {
           create: {
-            difficulty: 'Core' as any,
+            difficulty: 'CORE',
             vocabularyConstraints: 'None',
-            answerRevealPolicy: 'After Attempt' as any
+            answerRevealPolicy: 'AFTER_ATTEMPT'
           }
         },
         sources: {
@@ -43,8 +43,9 @@ async function test() {
       }
     });
     console.log('Unit created successfully:', unit.id);
-  } catch (e: any) {
-    console.error('Prisma Error:', e.message || e);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Prisma Error:', message);
   } finally {
     await prisma.$disconnect();
   }

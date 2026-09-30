@@ -30,6 +30,7 @@ export function ReviewTab({
 }: ReviewTabProps) {
   const [copied, setCopied] = useState(false);
 
+  const approvedAssets = unit.assets.filter((asset) => asset.status === 'Approved');
   const approvedAssetsCount = unit.assets.filter((a) => a.status === 'Approved').length;
   const allAssetsApproved = approvedAssetsCount === unit.assets.length;
   const errorWarnings = unit.qualityWarnings.filter((w) => w.severity === 'Error');
@@ -39,7 +40,7 @@ export function ReviewTab({
     const text = `# ${unit.title} — Learning Pack
 Subject: ${unit.subject} | Level: ${unit.targetLevel}
 
-${unit.assets.map((a) => `\n---\n## ${a.type}: ${a.title}\n\n${a.content}`).join('\n\n')}
+${approvedAssets.map((a) => `\n---\n## ${a.type}: ${a.title}\n\n${a.content}`).join('\n\n')}
 `;
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -50,7 +51,7 @@ ${unit.assets.map((a) => `\n---\n## ${a.type}: ${a.title}\n\n${a.content}`).join
     const text = `# ${unit.title} — Learning Pack
 Subject: ${unit.subject} | Level: ${unit.targetLevel}
 
-${unit.assets.map((a) => `\n---\n## ${a.type}: ${a.title}\n\n${a.content}`).join('\n\n')}
+${approvedAssets.map((a) => `\n---\n## ${a.type}: ${a.title}\n\n${a.content}`).join('\n\n')}
 `;
     const blob = new Blob([text], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
@@ -101,7 +102,6 @@ ${unit.assets.map((a) => `\n---\n## ${a.type}: ${a.title}\n\n${a.content}`).join
                 className="btn btn-success"
                 onClick={() => {
                   onApproveAllAssets();
-                  onUpdateUnitStatus('Approved');
                 }}
               >
                 <IconCheck size={18} /> Approve Entire Unit
@@ -242,6 +242,11 @@ ${unit.assets.map((a) => `\n---\n## ${a.type}: ${a.title}\n\n${a.content}`).join
                 >
                   {asset.status}
                 </span>
+                {asset.review && (
+                  <span className="text-xs text-secondary">
+                    {asset.review.reviewerName} · {new Date(asset.review.reviewedAt).toLocaleString()}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
@@ -263,6 +268,7 @@ ${unit.assets.map((a) => `\n---\n## ${a.type}: ${a.title}\n\n${a.content}`).join
             type="button"
             className="btn btn-secondary"
             onClick={handleDownloadMarkdown}
+            disabled={approvedAssetsCount === 0}
           >
             <IconDownload size={16} /> Download Markdown (.md)
           </button>
@@ -271,6 +277,7 @@ ${unit.assets.map((a) => `\n---\n## ${a.type}: ${a.title}\n\n${a.content}`).join
             type="button"
             className="btn btn-secondary"
             onClick={handleCopyPack}
+            disabled={approvedAssetsCount === 0}
           >
             <IconCopy size={16} />
             <span>{copied ? 'Copied to Clipboard!' : 'Copy Entire Pack'}</span>

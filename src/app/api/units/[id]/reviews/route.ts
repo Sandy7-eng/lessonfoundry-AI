@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ReviewsService, UnitsService } from '@/server/services';
-import { CreateReviewSchema, UpdateReviewSchema } from '@/server/schemas';
+import { CreateReviewSchema, ReviewStatusSchema, UpdateReviewSchema } from '@/server/schemas';
 import { handleApiError, isValidId, parseJsonBody } from '@/server/utils/apiResponse';
 
 export const dynamic = 'force-dynamic';
@@ -71,8 +71,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const body = await parseJsonBody<{
       id?: string;
       reviewId?: string;
+      assetId?: string;
+      status?: string;
+      comment?: string;
       [key: string]: unknown;
     }>(request);
+
+    if (body.assetId && body.status) {
+      const status = ReviewStatusSchema.parse(body.status);
+      const review = await ReviewsService.reviewAsset(id, body.assetId, status, body.comment);
+      return NextResponse.json(review, { status: 201 });
+    }
 
     const reviewId =
       request.nextUrl.searchParams.get('reviewId') ||

@@ -42,7 +42,10 @@ export class UnitsService {
           include: {
             questions: { orderBy: { displayOrder: 'asc' } },
             alignments: true,
-            reviews: true,
+            reviews: {
+              include: { user: { select: { id: true, name: true, email: true } } },
+              orderBy: { createdAt: 'desc' },
+            },
             qualityIssues: true,
             assetVersions: true,
             provenances: true,

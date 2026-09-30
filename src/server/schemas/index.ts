@@ -182,5 +182,11 @@ export const CreateProvenanceSchema = z.object({
   sourceId: z.string().optional(),
   modelIdentifier: z.string().min(1, 'modelIdentifier is required'),
   generationVersion: z.string().min(1, 'generationVersion is required'),
-  generationConfig: z.record(z.string(), z.unknown()).optional(),
+  generationConfig: z.union([
+    z.string(),
+    z.record(z.string(), z.unknown()),
+  ]).optional().transform((value) => {
+    if (value === undefined) return undefined;
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  }),
 });
